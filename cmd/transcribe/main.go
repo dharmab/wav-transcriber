@@ -15,7 +15,12 @@ import (
 	"github.com/go-audio/wav"
 )
 
-func processSample(ctx context.Context, wCtx whisper.Context, path string) (text string, err error) {
+func processSample(ctx context.Context, model whisper.Model, path string) (text string, err error) {
+	slog.Info("instantiating model context")
+	wCtx, err := model.NewContext()
+	if err != nil {
+		return
+	}
 	slog.Info("loading sample", "path", path)
 	file, err := os.Open(path)
 	if err != nil {
@@ -52,6 +57,23 @@ func processSample(ctx context.Context, wCtx whisper.Context, path string) (text
 	return
 }
 
+func write(ctx context.Context, records [][]string, outPath string) error {
+	outFile, err := os.Create(outPath)
+	if err != nil {
+		return err
+	}
+	outWriter := csv.NewWriter(outFile)
+	err = outWriter.WriteAll(records)
+	if err != nil {
+		return err
+	}
+	outWriter.Flush()
+	if err := outWriter.Error(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func run(ctx context.Context, modelPath string, samplePaths []string, outPath string) error {
 	slog.Info("loading whisper model", "path", modelPath)
 	model, err := whisper.New(modelPath)
@@ -66,31 +88,15 @@ func run(ctx context.Context, modelPath string, samplePaths []string, outPath st
 	}
 
 	for i, path := range samplePaths {
-		slog.Info("instantizating model context")
-		whisperCtx, err := model.NewContext()
+		text, err := processSample(ctx, model, path)
 		if err != nil {
 			return err
 		}
-		text, err := processSample(ctx, whisperCtx, path)
-		if err != nil {
-			return err
-		}
-
-		records[i][0] = path
-		records[i][1] = text
+		records[i] = []string{path, text}
 	}
 
-	outFile, err := os.Create(outPath)
+	err = write(ctx, records, outPath)
 	if err != nil {
-		return err
-	}
-	outWriter := csv.NewWriter(outFile)
-	err = outWriter.WriteAll(records)
-	if err != nil {
-		return err
-	}
-	outWriter.Flush()
-	if err := outWriter.Error(); err != nil {
 		return err
 	}
 
